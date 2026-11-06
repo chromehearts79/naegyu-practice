@@ -190,7 +190,8 @@ def finish(judge_answers, ai_name):
     results = sorted(kept + rows, key=lambda r: order[r["card"]])
     count = {v: sum(1 for r in results if r["verdict"] == v) for v in ("일치", "판정 통과", "확인 필요")}
     names = sorted({r["ai"] for r in rows})
-    lines = [f"# 독립 검증 결과 (답한 AI: {', '.join(names)})\n",
+    lines = ["# 독립 검증 결과\n",
+             f"- 이번에 다시 확인한 항목: {len(rows)}개 (답한 AI: {', '.join(names)}). 나머지 {len(kept)}개는 이전 확인 결과를 그대로 둠\n",
              "1차: 카드 값을 숨기고 인용 위치의 조문만 주어 값을 다시 찾게 한 뒤 숫자를 비교.",
              "2차: 1차에서 어긋나거나 숫자가 없는 항목은 카드 값과 조문을 함께 주고 맞는지 판정.\n",
              f"- 항목 {len(results)}개: 1차 일치 {count['일치']}, 2차 판정 통과 {count['판정 통과']}, "

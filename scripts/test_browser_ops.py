@@ -783,6 +783,31 @@ sk = (ROOT / ".claude" / "skills" / "naegyu-update" / "SKILL.md").read_text(enco
 ok("카드 근거가 없는 바뀐 곳" in sk.split("## 3단계", 1)[1].split("## 4단계", 1)[0] and "새로 틀린" in sk.split("## 4단계", 1)[1].split("## 5단계", 1)[0] and "reports/search_compare.md" in sk.split("## 5단계", 1)[1],
    "J6: 스킬이 빠진 곳 경고(3단계), 전·후 비교(4단계), 비교 보고서 올리기(5단계)를 안내한다")
 
+# ---- K. 인계 전 고침: 바뀐 내용 파일, 재확인 보고서 머리말, 법령 단계, 쉬운 말, 시험 기준, 인계 점검표 ----
+with tempfile.TemporaryDirectory() as td:
+    td = Path(td)
+    (td / "knowledge").mkdir(); (td / "reports").mkdir()
+    (td / "knowledge" / "site.json").write_text(json.dumps({"release": {"no": 5, "where": ""}}), encoding="utf-8")
+    (td / "reports" / "change_report.md").write_text("# 결과\n\n바뀐 조문\n\n## 처리 순서\n\n1. `python3 scripts/x.py`\n", encoding="utf-8")
+    saved_ur = (UR.ROOT, UR.run, UR.build_all, UR.sources, UR.refresh_alio, UR.MANIFEST)
+    UR.ROOT, UR.run, UR.build_all, UR.sources, UR.refresh_alio, UR.MANIFEST = td, lambda *c, check=True: "오류 0건", lambda: None, lambda: {}, lambda: None, td / "knowledge" / "source_files.json"
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            UR.finish(["복무세칙"])
+    finally:
+        UR.ROOT, UR.run, UR.build_all, UR.sources, UR.refresh_alio, UR.MANIFEST = saved_ur
+    rel = (td / "reports" / "release_changes.md").read_text(encoding="utf-8")
+    ok(rel == "# 결과\n\n바뀐 조문\n" and "python3" not in rel, "K1: 새 판의 바뀐 내용 파일에서 작업자용 '처리 순서'(명령어)를 뺀다")
+bc = (ROOT / "scripts" / "blind_check.py").read_text(encoding="utf-8")
+ok("이번에 다시 확인한 항목" in bc and "이전 확인 결과를 그대로 둠" in bc, "K2: 재확인 보고서 머리말이 이번에 다시 한 항목과 이전 결과를 나눠 적는다")
+sk = (ROOT / ".claude" / "skills" / "naegyu-update" / "SKILL.md").read_text(encoding="utf-8")
+ok("korean-law" not in sk and "법령 확인 필요" in sk and "## 법령 확인" in guide and "법령 인용 카드 확인해줘" in guide, "K3: 개정 반영은 법령을 따로 조회하지 않고, 법령 확인은 안내서의 따로 할 일이다")
+ok("답 고르는 장치" in sk and "엔진" in sk.split("## 0단계", 1)[0], "K4: 스킬이 프로그램 이름과 개발 용어를 풀어 말하라고 한다")
+ok("✗!" in sk and "새로 틀림 0개" in sk and "`✗!`" in cl and "compare_search.py" in cl, "K5: 검색 시험의 종료 코드가 잡지 않는 것과 대신 볼 것을 적었다")
+hand = (ROOT / "docs" / "인계_점검표.md").read_text(encoding="utf-8")
+ok(all(w in hand for w in ("정보보안담당관", "feedback", "NAEGYU_ASSIGNEES", "Releases", "새로 틀림 0개", "연습 사본")) and "@" not in hand and "인계_점검표.md" in guide,
+   "K6: 인계 점검표가 있고(보안 확인·신고 창구·알림·새 판·전후 비교), 개인 메일을 적지 않으며 안내서가 가리킨다")
+
 # ---- 작은 것들 ----
 spj = (ROOT / "scripts" / "setup_project.py").read_text(encoding="utf-8")
 ok('[npm, "ci", "--ignore-scripts"]' in spj, "작은것: npm ci 는 --ignore-scripts 로 한다")

@@ -41,11 +41,3 @@
 +
 +③ 공용차량을 운전 중 「도로교통법」을 위반하여 부과된 범칙금·과태료·벌금은 운전자 책임으로 한다. 다만, 정당한 직무수행 중 생명보호, 안전확보 등 불가피하게 발생한 경우에는 원장의 승인을 받아 금융원에서 납부할 수 있다.
 ```
-
-## 처리 순서
-
-1. 위 카드의 답·근거를 새 원문에 맞게 고친다(`python3 scripts/show_rule.py <규정명>`).
-2. `python3 scripts/check_knowledge.py` 오류 0건, `python3 scripts/blind_check.py prepare <카드 id…>` 로 다시 검증.
-   '다시 확인할 계산기'가 있으면 그 계산기 숫자(web/engine.js)와 근거표(knowledge/calc_basis.json)도 새 원문대로 고친다.
-3. 그 규정의 카드를 다 확인했으면 `python3 scripts/check_changes.py --accept <규정명>`.
-4. `python3 scripts/build_web.py` 로 다시 묶는다. 확인 전 카드는 화면에 '규정 개정 · 재검수 전'으로 표시된다.

@@ -185,7 +185,12 @@ def finish(accept):
     # --accept 와 아래 check_changes 가 변경 보고서를 "바뀐 것 없음"으로 덮어쓰므로, 새 판 파일용으로 먼저 따로 둔다
     report = ROOT / "reports" / "change_report.md"
     if report.exists():
-        shutil.copyfile(report, ROOT / "reports" / "release_changes.md")
+        # 직원·담당자가 읽는 파일이라 작업자용 '처리 순서'(명령어) 절은 뺀다
+        text = report.read_text(encoding="utf-8")
+        if "\n## 처리 순서" in text:
+            (ROOT / "reports" / "release_changes.md").write_text(text.split("\n## 처리 순서", 1)[0].rstrip() + "\n", encoding="utf-8")
+        else:
+            shutil.copyfile(report, ROOT / "reports" / "release_changes.md")
     if accept:
         print(run(sys.executable, "scripts/check_changes.py", "--accept", *accept).strip())
     # 새로 배포할 판 번호(옛 사본과 구별하려고 화면 위쪽에 '제N판'으로 보인다)

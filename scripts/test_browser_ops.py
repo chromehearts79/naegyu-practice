@@ -630,9 +630,14 @@ with tempfile.TemporaryDirectory() as td:
     (td / "reports" / "change_report.md").write_text("진짜 바뀐 조문", encoding="utf-8")
     saved_ur = (UR.ROOT, UR.run, UR.build_all, UR.sources, UR.refresh_alio, UR.MANIFEST)
 
+    calls = []
+
     def fake_run(*cmd, check=True):
+        calls.append([str(c) for c in cmd])
         if any("check_changes.py" in str(c) for c in cmd):
-            (td / "reports" / "change_report.md").write_text("바뀐 것 없음", encoding="utf-8")
+            # 실제처럼: 승인 전 비교는 바뀐 조문을 그대로 쓰고, 승인한 뒤에는 "바뀐 것 없음"
+            if any("--accept" in c for c in calls[-1]) or any("--accept" in c for x in calls[:-1] for c in x):
+                (td / "reports" / "change_report.md").write_text("바뀐 것 없음", encoding="utf-8")
             return "비교 끝"
         return "오류 0건"
     UR.ROOT, UR.run, UR.build_all, UR.sources, UR.refresh_alio, UR.MANIFEST = td, fake_run, lambda: None, lambda: {}, lambda: None, td / "knowledge" / "source_files.json"
@@ -642,6 +647,9 @@ with tempfile.TemporaryDirectory() as td:
     finally:
         UR.ROOT, UR.run, UR.build_all, UR.sources, UR.refresh_alio, UR.MANIFEST = saved_ur
     ok((td / "reports" / "release_changes.md").read_text(encoding="utf-8") == "진짜 바뀐 조문" and (td / "reports" / "change_report.md").read_text(encoding="utf-8") == "바뀐 것 없음", "I1: finish 는 승인으로 보고서가 덮어쓰이기 전에 release_changes.md 로 따로 둔다")
+    cc = [c for c in calls if any("check_changes.py" in x for x in c)]
+    ok(len(cc) >= 2 and not any("--accept" in x for x in cc[0]) and any("--accept" in x for x in cc[1]), "J1: finish 는 승인 전에 지금 카드로 변경 보고서를 다시 쓴다")
+    ok(any(any("compare_search.py" in x for x in c) for c in calls), "J2: finish 는 검색 시험 전·후 비교를 돌린다")
 with tempfile.TemporaryDirectory() as td:
     td = Path(td)
     (td / "dist" / "gpts").mkdir(parents=True); (td / "reports" / "review").mkdir(parents=True)
@@ -737,6 +745,68 @@ with tempfile.TemporaryDirectory() as td:
     ok(CC2.handle("확인함", "NONE", "표시 없음", "2026-11-16", latest, sp, g, 7, td) == "무시" and g.calls == [], "I6: 권한이 없는 사람에게는 어떤 답도 하지 않는다")
     g = FakeGh()
     ok(CC2.handle("지나가는 말", "OWNER", "표시 없음", "2026-11-16", latest, sp, g, 7, td) == "무시" and g.calls == [], "I6: 확인함이 아닌 댓글은 표시 없는 이슈에서도 답하지 않는다")
+
+# ---- J. 카드 근거가 없는 바뀐 곳, 검색 시험 전·후 비교 ----
+import check_changes as CCJ  # noqa: E402
+import compare_search as CS  # noqa: E402
+j_rules = {"가지침": {"name": "가지침", "effective": "2026.01.01", "annexes": [], "buchik": [], "articles": [
+    {"no": "제1조", "text": "제1조(목적) 이 지침은 목적을 정한다.", "paras": []},
+    {"no": "제2조", "text": "제2조(벌칙) ① 사적으로 쓰면 징계한다. ② 손해는 환수한다. ③ 범칙금은 운전자가 낸다.", "paras": [
+        {"no": 1, "text": "① 사적으로 쓰면 징계한다."}, {"no": 2, "text": "② 손해는 환수한다."}, {"no": 3, "text": "③ 범칙금은 운전자가 낸다."}]},
+    {"no": "제3조", "text": "제3조(신설) 새로 생긴 조문이다.", "paras": []}]}}
+j_changes = {("가지침", "제1조"): "changed", ("가지침", "제2조"): "changed", ("가지침", "제2조제1항"): "changed",
+             ("가지침", "제2조제3항"): "added", ("가지침", "제3조"): "added", ("가지침", "부칙:2026.01.01"): "added"}
+j_card = {"id": "x-1", "rule": "가지침", "facts": [{"cite": "가지침 제2조제1항", "quote": "사적으로 쓰면 징계한다"}]}
+unc = CCJ.uncovered_units(j_changes, j_rules, [j_card])
+ok([x["unit"] for x in unc] == ["제1조", "제2조제3항"], "J3: 카드 근거가 없는 바뀐 곳(새 항·바뀐 조) — 근거 있는 항, 항이 있는 조 자체, 새 조문, 부칙은 뺀다")
+j_card2 = dict(j_card, facts=j_card["facts"] + [{"cite": "가지침 제2조제3항", "quote": "범칙금은 운전자가 낸다"}, {"cite": "가지침 제1조", "quote": "목적을 정한다"}])
+ok(CCJ.uncovered_units(j_changes, j_rules, [j_card2]) == [], "J3: 카드에 그 항의 근거를 더하면 사라진다")
+ok(CCJ.uncovered_units({("나지침", "제1조"): "added"}, {"나지침": {"name": "나지침", "articles": [{"no": "제1조", "text": "새 내규", "paras": []}]}}, []) == [], "J3: 새 내규는 '카드가 없는 규정'이 알리므로 뺀다")
+
+
+def jrow(q, ok_, got="a", wrong=False, s="dev"):
+    return {"set": s, "q": q, "expect": ["a"], "got": got, "ids": [], "ok": ok_, "wrong": wrong}
+
+
+jb = [jrow("가", True), jrow("나", False, "b", True), jrow("다", True), jrow("같은 질문", True), jrow("같은 질문", False, "ask")]
+ja = [jrow("가", True), jrow("나", True), jrow("다", False, "fallback"), jrow("같은 질문", True), jrow("같은 질문", True), jrow("새 질문", True)]
+jres = CS.compare(jb, ja, {("dev", "가"), ("dev", "나"), ("dev", "다"), ("dev", "같은 질문")})
+ok([n["q"] for _, n in jres["fixed"]] == ["나", "같은 질문"] and [n["q"] for _, n in jres["broke"]] == ["다"] and [n["q"] for _, n in jres["added"]] == ["새 질문"] and len(jres["common"]) == 5,
+   "J4: 전·후 비교가 새로 맞음·새로 틀림·이번에 더한 질문을 나눈다(같은 질문 둘도 차례로 구별)")
+jtext, _ = CS.report("0123456789abcdef", jres, {"n": 10, "top1": "50.0%", "top3": "70.0%"}, {"n": 11, "top1": "51.0%", "top3": "71.0%"}, {"a": "가 카드"})
+ok("새로 틀린 질문 (1개)" in jtext and "a(가 카드)" in jtext and "0123456" in jtext and not any(q in jtext for q in ("같은 질문", "새 질문")),
+   "J4: 비교 보고서에 시험 질문 글을 적지 않는다")
+with tempfile.TemporaryDirectory() as td:
+    r = subprocess.run([sys.executable, str(ROOT / "scripts" / "compare_search.py"), "--base", "없는커밋0000", "--out", str(Path(td) / "c.md")], capture_output=True, text=True, encoding="utf-8")
+    ok(r.returncode == 0 and "하지 못했습니다" in r.stdout and "비교하지 못함" in (Path(td) / "c.md").read_text(encoding="utf-8"), "J5: 비교를 못 해도 멈추지 않고 경고만 낸다")
+sk = (ROOT / ".claude" / "skills" / "naegyu-update" / "SKILL.md").read_text(encoding="utf-8")
+ok("카드 근거가 없는 바뀐 곳" in sk.split("## 3단계", 1)[1].split("## 4단계", 1)[0] and "새로 틀린" in sk.split("## 4단계", 1)[1].split("## 5단계", 1)[0] and "reports/search_compare.md" in sk.split("## 5단계", 1)[1],
+   "J6: 스킬이 빠진 곳 경고(3단계), 전·후 비교(4단계), 비교 보고서 올리기(5단계)를 안내한다")
+
+# ---- K. 인계 전 고침: 바뀐 내용 파일, 재확인 보고서 머리말, 법령 단계, 쉬운 말, 시험 기준, 인계 점검표 ----
+with tempfile.TemporaryDirectory() as td:
+    td = Path(td)
+    (td / "knowledge").mkdir(); (td / "reports").mkdir()
+    (td / "knowledge" / "site.json").write_text(json.dumps({"release": {"no": 5, "where": ""}}), encoding="utf-8")
+    (td / "reports" / "change_report.md").write_text("# 결과\n\n바뀐 조문\n\n## 처리 순서\n\n1. `python3 scripts/x.py`\n", encoding="utf-8")
+    saved_ur = (UR.ROOT, UR.run, UR.build_all, UR.sources, UR.refresh_alio, UR.MANIFEST)
+    UR.ROOT, UR.run, UR.build_all, UR.sources, UR.refresh_alio, UR.MANIFEST = td, lambda *c, check=True: "오류 0건", lambda: None, lambda: {}, lambda: None, td / "knowledge" / "source_files.json"
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            UR.finish(["복무세칙"])
+    finally:
+        UR.ROOT, UR.run, UR.build_all, UR.sources, UR.refresh_alio, UR.MANIFEST = saved_ur
+    rel = (td / "reports" / "release_changes.md").read_text(encoding="utf-8")
+    ok(rel == "# 결과\n\n바뀐 조문\n" and "python3" not in rel, "K1: 새 판의 바뀐 내용 파일에서 작업자용 '처리 순서'(명령어)를 뺀다")
+bc = (ROOT / "scripts" / "blind_check.py").read_text(encoding="utf-8")
+ok("이번에 다시 확인한 항목" in bc and "이전 확인 결과를 그대로 둠" in bc, "K2: 재확인 보고서 머리말이 이번에 다시 한 항목과 이전 결과를 나눠 적는다")
+sk = (ROOT / ".claude" / "skills" / "naegyu-update" / "SKILL.md").read_text(encoding="utf-8")
+ok("korean-law" not in sk and "법령 확인 필요" in sk and "## 법령 확인" in guide and "법령 인용 카드 확인해줘" in guide, "K3: 개정 반영은 법령을 따로 조회하지 않고, 법령 확인은 안내서의 따로 할 일이다")
+ok("답 고르는 장치" in sk and "엔진" in sk.split("## 0단계", 1)[0], "K4: 스킬이 프로그램 이름과 개발 용어를 풀어 말하라고 한다")
+ok("✗!" in sk and "새로 틀림 0개" in sk and "`✗!`" in cl and "compare_search.py" in cl, "K5: 검색 시험의 종료 코드가 잡지 않는 것과 대신 볼 것을 적었다")
+hand = (ROOT / "docs" / "인계_점검표.md").read_text(encoding="utf-8")
+ok(all(w in hand for w in ("정보보안담당관", "feedback", "NAEGYU_ASSIGNEES", "Releases", "새로 틀림 0개", "연습 사본")) and "@" not in hand and "인계_점검표.md" in guide,
+   "K6: 인계 점검표가 있고(보안 확인·신고 창구·알림·새 판·전후 비교), 개인 메일을 적지 않으며 안내서가 가리킨다")
 
 # ---- 작은 것들 ----
 spj = (ROOT / "scripts" / "setup_project.py").read_text(encoding="utf-8")

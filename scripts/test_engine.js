@@ -76,7 +76,7 @@ function judge(it) {
   const ok = (dec.mode === "answer" ? fam(got) : it.expect.includes(got)) || (dec.mode === "ask" && dec.ids.some(fam) && !it.expect.includes("fallback"));
   // 엉뚱한 답을 바로 낸 경우(되묻지 않고 틀린 카드로 답함)는 따로 센다. 신뢰를 가장 크게 깎는다
   const wrongDirect = !ok && dec.mode === "answer";
-  return { ok, wrongDirect, row: `${ok ? "✓" : wrongDirect ? "✗!" : "✗"} ${it.q} → ${got}${dec.mode === "ask" ? " [" + dec.ids.join(", ") + "]" : ""} (기대 ${it.expect.join("|")}, 1위 ${ranked[0] ? ranked[0].id + ":" + ranked[0].score.toFixed(2) : "-"})` };
+  return { ok, wrongDirect, got, ids: dec.ids || [], row: `${ok ? "✓" : wrongDirect ? "✗!" : "✗"} ${it.q} → ${got}${dec.mode === "ask" ? " [" + dec.ids.join(", ") + "]" : ""} (기대 ${it.expect.join("|")}, 1위 ${ranked[0] ? ranked[0].id + ":" + ranked[0].score.toFixed(2) : "-"})` };
 }
 const devRes = dev.map(judge), devRows = devRes.map((r) => r.row), devOk = devRes.filter((r) => r.ok).length;
 console.log(`[2] 카드에 없는 시험 질문 ${dev.length}개: 맞게 처리 ${devOk}개 (${pct(devOk, dev.length)}), 엉뚱한 답을 바로 냄 ${devRes.filter((r) => r.wrongDirect).length}개`);
@@ -95,6 +95,15 @@ hoRes.filter((r) => verbose || !r.ok).forEach((r) => console.log("    " + r.row)
 if (process.argv.includes("--json")) {
   // 빌드 스크립트가 화면의 '검증 정보'에 쓸 숫자
   console.log("JSON " + JSON.stringify({ loo: n, top1: pct(top1, n), top3: pct(top3, n), dev: `${devOk}/${dev.length}`, holdout: `${hoOk}/${holdout.length}` }));
+}
+if (process.argv.includes("--rows")) {
+  // 검색 시험 전·후 비교(compare_search.py)가 쓸 질문별 결과를 파일에 쓴다(--rows <파일>). 화면 출력은 길면 잘릴 수 있어 파일로 넘긴다.
+  // 계산기·나침반 시험(원문이 필요)은 건너뛰고 끝낸다
+  const out = process.argv[process.argv.indexOf("--rows") + 1];
+  if (!out || out.startsWith("-")) throw new Error("--rows 뒤에 결과를 쓸 파일 경로가 필요합니다");
+  const rows = (set, list, res) => list.map((it, i) => ({ set, q: it.q, expect: it.expect, got: res[i].got, ids: res[i].ids, ok: res[i].ok, wrong: res[i].wrongDirect }));
+  fs.writeFileSync(out, JSON.stringify({ loo: { n, top1: pct(top1, n), top3: pct(top3, n) }, items: rows("dev", dev, devRes).concat(rows("holdout", holdout, hoRes)) }), "utf8");
+  process.exit(0);
 }
 
 // 3) 계산기

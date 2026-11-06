@@ -1,28 +1,5 @@
 {
  "taken": "2026-11-06",
- "cards": {
-  "r4-9-use": [
-   {
-    "rule": "공용차량운영지침",
-    "unit": "제6조제2항",
-    "change": "changed",
-    "effective": "2023.05.22"
-   }
-  ],
-  "r4-9-penalty": [
-   {
-    "rule": "공용차량운영지침",
-    "unit": "제8조제1항",
-    "change": "changed",
-    "effective": "2023.05.22"
-   },
-   {
-    "rule": "공용차량운영지침",
-    "unit": "제8조제2항",
-    "change": "changed",
-    "effective": "2023.05.22"
-   }
-  ]
- },
+ "cards": {},
  "calcs": {}
 }

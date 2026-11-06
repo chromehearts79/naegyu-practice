@@ -39,6 +39,7 @@ python3 scripts/blind_check.py prepare <카드 id…>   # 2. 독립 재확인: �
 python3 scripts/check_approval_table.py    #    위임전결기준 표의 ○ 칸과 카드 전결권자 대조 → reports/approval_table_check.md
 python3 scripts/check_changes.py           #    규정 개정 감지 → reports/change_report.md (아래 '규정이 개정되면')
 node scripts/test_engine.js -v       # 3. 검색·계산기 시험
+python3 scripts/compare_search.py          #    검색 시험 전·후 비교(main 과 갈라진 곳 ↔ 지금) → reports/search_compare.md (finish 가 돌린다)
 python3 scripts/build_forms.py <규정명…> | --check   #    서식 대장(별지 번호·제목·부르는 조문) → knowledge/forms.json
 node scripts/cut_forms.cjs                 #    원본 .hwp·.hwpx 에서 별지 한 장씩 떼기 → data/forms
 python3 scripts/check_forms.py             #    떼어 낸 양식이 원본 별지와 같은지 검사
@@ -59,6 +60,7 @@ python3 scripts/build_web.py         # 4. 시범본 묶기 → dist/ (양식은 
    - 카드를 확인한 시점의 조문·항·별표·부칙 원문 지문(`knowledge/source_snapshot.json`)과 새 원문을 비교한다.
    - **다시 확인할 카드**: 인용한 조(항까지 적었으면 그 항)가 바뀌었거나 없어진 카드. 바뀐 글자를 diff 로 보여 준다.
    - **참고 카드**: 같은 조의 다른 항만 바뀐 카드. **새 조문**: 카드가 없을 수 있는 신설 조문.
+   - **카드 근거가 없는 바뀐 곳**: 바뀌었거나 새로 붙은 항인데 어느 카드도 그 새 글을 근거(quote)로 쓰지 않는 곳. 있던 조에 항이 새로 붙으면 위 두 목록에 안 나와 빠뜨리기 쉽다. `finish` 도 남은 곳을 경고한다.
    - 인용 문구가 그대로 남는 개정(예: 같은 항에 "다만, 수습 직원은 10일" 추가)도 잡는다. `check_knowledge.py` 만으로는 못 잡는다.
    - **다시 확인할 계산기**: 계산기 숫자의 근거 조문(`knowledge/calc_basis.json`)이 바뀐 계산기. 숫자는 `web/engine.js` 안에 있어 카드만 고쳐서는 바뀌지 않는다.
 3. 다시 확인할 카드를 새 원문에 맞게 고치고 `check_knowledge.py`(오류 0건), `blind_check.py prepare <카드 id…>` 로 독립 재확인을 한다. 필요하면 새 조문 카드를 만든다.

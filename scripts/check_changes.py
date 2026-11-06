@@ -143,6 +143,42 @@ def compare(rules, snap, cards):
     return changes, eff, stale, related
 
 
+def is_para(unit):
+    """단위 이름이 항('제8조제3항')인지"""
+    return "항" in unit and "조제" in unit
+
+
+def uncovered_units(changes, rules, cards):
+    """바뀌었거나 새로 생긴 곳인데, 그 새 원문에서 따온 카드 근거(quote)가 하나도 없는 곳 → [{rule, unit, change}]
+
+    '다시 확인할 카드'는 카드가 인용한 곳이 바뀐 것만 찾는다. 있던 조에 항이 새로 붙는 개정(예: 제8조③ 신설)은
+    인용한 카드가 없어 그 목록에 안 나오고, 조 전체가 새로 생긴 것도 아니어서 '새 조문'에도 안 나온다.
+    그래서 바뀐 곳마다 카드 근거가 그 글 안에 하나라도 있는지 본다. 없으면 빠뜨린 내용일 수 있다
+    (목적 조문이나 글자만 다듬은 곳처럼 카드가 필요 없는 곳일 수도 있다).
+    항이 있는 조는 항 단위로 본다. 새로 생긴 조문·별표와 새 내규(다른 목록이 알린다), 부칙, 없어진 곳은 뺀다.
+    """
+    quotes = {}
+    for c in cards:
+        for f in c.get("facts", []):
+            name, _ = unit_of_cite(f["cite"], rules)
+            if name and f.get("quote"):
+                quotes.setdefault(name, []).append(norm(f["quote"]))
+    out = []
+    for (name, unit), kind in sorted(changes.items()):
+        if kind == "removed" or unit.startswith("부칙:") or name not in rules:
+            continue
+        units = units_of(rules[name])
+        if is_para(unit):
+            if changes.get((name, unit[:unit.rindex("제")])) == "added":
+                continue  # 조 전체가 새로 생김 → '새로 생긴 조문'이 알린다
+        elif kind == "added" or any(k.startswith(unit + "제") and is_para(k) for k in units):
+            continue  # 새 조문·별표는 다른 목록이, 항이 있는 조는 그 항들이 알린다
+        text = norm(units.get(unit, ""))
+        if text and not any(q in text for q in quotes.get(name, [])):
+            out.append({"rule": name, "unit": unit, "change": kind})
+    return out
+
+
 def calc_stale(changes, rules):
     """계산기 숫자 근거(calc_basis.json) 조문이 바뀐 계산기 → {계산기: {title, cites: [{cite, change}]}}"""
     basis = json.loads(CALC_BASIS.read_text())
@@ -201,8 +237,9 @@ def main():
     trial = Path(args.rules).resolve() != RULES.resolve()
     report = Path(args.rules).with_suffix(".change_report.md") if trial else REPORT
     calcs = calc_stale(changes, rules)
+    uncovered = uncovered_units(changes, rules, cards)
     if not trial:
-        STALE.write_text(json.dumps({"taken": old["taken"], "cards": stale, "calcs": calcs}, ensure_ascii=False, indent=1) + "\n")
+        STALE.write_text(json.dumps({"taken": old["taken"], "cards": stale, "calcs": calcs, "uncovered": uncovered}, ensure_ascii=False, indent=1) + "\n")
 
     # 보고서
     cited = {}
@@ -211,8 +248,7 @@ def main():
             cited.setdefault(unit_of_cite(f["cite"], rules), set()).add(c["id"])
     lines = ["# 규정 개정 감지 결과", "",
              f"카드 확인 기준(지문) {old['taken']} · 비교한 규정 원본 {Path(args.rules).name}", ""]
-    is_para = lambda u: "항" in u and "조제" in u  # noqa: E731
-    changed = [(k, v) for k, v in sorted(changes.items()) if v != "added" and not is_para(k[1])]
+    changed =[(k, v) for k, v in sorted(changes.items()) if v != "added" and not is_para(k[1])]
     added = [k for k, v in sorted(changes.items()) if v == "added" and not k[1].startswith("부칙:") and not is_para(k[1])]
     new_buchik = [k for k, v in sorted(changes.items()) if v == "added" and k[1].startswith("부칙:")]
     lines += [f"- 바뀌거나 없어진 조문·별표·부칙: {len(changed)}개",
@@ -220,6 +256,7 @@ def main():
               f"- 참고할 카드: {len(related)}장 (같은 조의 다른 항만 바뀜)",
               f"- 다시 확인할 계산기: **{len(calcs)}종** (계산기 숫자의 근거 조문이 바뀜)",
               f"- 새로 생긴 조문·별표(카드가 없을 수 있음): {len(added)}개",
+              f"- 카드 근거가 없는 바뀐 곳(빠뜨리기 쉬움): **{len(uncovered)}곳** (새로 붙은 항 등. 아래 같은 이름 절)",
               f"- 새 부칙(개정 이력): {len(new_buchik)}개", ""]
     if eff:
         lines += ["## 시행일이 바뀐 규정", ""] + [f"- {n}: {a or '-'} → {b or '-'}" for n, (a, b) in sorted(eff.items())] + [""]
@@ -247,6 +284,14 @@ def main():
                   "계산기 숫자의 근거 조문이 바뀌었다. 새 원문을 보고 web/engine.js 의 그 계산기 숫자와 knowledge/calc_basis.json 의 문구(has)를 고친다.",
                   "확인 전에 화면을 다시 만들면 그 계산기는 '근거 조문 개정 · 계산 멈춤'으로 표시되고 계산하지 않는다.", ""]
         lines += [f"- {v['title']} ({k}): " + ", ".join(f"{x['cite']}({'삭제' if x['change'] == 'removed' else '변경'})" for x in v["cites"]) for k, v in sorted(calcs.items())] + [""]
+    if uncovered:
+        lines += ["## 카드 근거가 없는 바뀐 곳", "",
+                  "바뀌었거나 새로 생긴 곳인데, 그 새 글에서 따온 카드 근거가 하나도 없다. 직원이 물을 만한 내용이면 카드를 새로 만들거나 관련 카드에 더한다.",
+                  "카드가 필요 없는 곳(목적, 글자만 다듬은 곳 등)이면 그대로 두고 Pull Request 글에 까닭을 적는다.", ""]
+        for x in uncovered:
+            body = norm(units_of(rules[x["rule"]]).get(x["unit"], ""))
+            lines.append(f"- {unit_label(x['rule'], x['unit'])} ({'새 항' if x['change'] == 'added' else '변경'}): {body[:70]}{'…' if len(body) > 70 else ''}")
+        lines.append("")
     if added:
         lines += ["## 새로 생긴 조문·별표", ""] + [f"- {unit_label(n, u)}" + (" (카드 있음)" if (n, u) in cited else " — 카드 없음, 필요하면 새 카드 작성") for n, u in added] + [""]
     lines += ["## 처리 순서", "",
@@ -256,7 +301,7 @@ def main():
               "3. 그 규정의 카드를 다 확인했으면 `python3 scripts/check_changes.py --accept <규정명>`.",
               "4. `python3 scripts/build_web.py` 로 다시 묶는다. 확인 전 카드는 화면에 '규정 개정 · 재검수 전'으로 표시된다.", ""]
     report.write_text("\n".join(lines))
-    print(f"바뀐 단위 {len(changed)}개, 다시 확인할 카드 {len(stale)}장, 다시 확인할 계산기 {len(calcs)}종, 새 조문 {len(added)}개 → {report}")
+    print(f"바뀐 단위 {len(changed)}개, 다시 확인할 카드 {len(stale)}장, 다시 확인할 계산기 {len(calcs)}종, 새 조문 {len(added)}개, 카드 근거가 없는 바뀐 곳 {len(uncovered)}곳 → {report}")
 
 
 if __name__ == "__main__":

@@ -141,7 +141,7 @@ def convert():
     chk = run(sys.executable, "scripts/check_knowledge.py", check=False)
     errs = re.search(r"오류 (\d+)건", chk)
     stale_all = json.loads((ROOT / "knowledge" / "stale_cards.json").read_text())
-    stale, calcs = stale_all["cards"], stale_all.get("calcs", {})
+    stale, calcs, unc = stale_all["cards"], stale_all.get("calcs", {}), stale_all.get("uncovered", [])
     rules = json.loads((ROOT / "data" / "rules.json").read_text())["rules"]
     card_rules = set()
     for f in (ROOT / "knowledge").glob("*/[!_]*.json"):
@@ -157,12 +157,14 @@ def convert():
         "stale_cards": len(stale), "stale_rules": sorted({x["rule"] for v in stale.values() for x in v}),
         "rules_without_cards": no_cards, "check_errors": int(errs[1]) if errs else None,
         "stale_calcs": {k: v["title"] for k, v in calcs.items()},
+        "uncovered": [f"{x['rule']} {x['unit']}" for x in unc],
     }
     (OUT / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=1))
     lines = ["", "## 비교 결과",
              f"- 다시 확인할 카드: {len(stale)}장 (규정: {', '.join(summary['stale_rules']) or '없음'})",
              f"- 다시 확인할 계산기: {len(calcs)}종 ({', '.join(v['title'] for v in calcs.values()) or '없음'})",
              f"- 카드가 아직 없는 규정(새 내규): {', '.join(no_cards) or '없음'}",
+             f"- 카드 근거가 없는 바뀐 곳(새로 붙은 항 등, 빠뜨리기 쉬움): {len(unc)}곳" + (f" ({', '.join(summary['uncovered'])})" if unc else ""),
              f"- 카드 검사 오류(조문이 없어지거나 번호가 바뀐 인용): {summary['check_errors']}건",
              "- 자세한 내용: reports/change_report.md (바뀐 조문의 개정 전·후 글자)"]
     print("\n".join(lines))
@@ -173,6 +175,13 @@ def finish(accept):
     if "오류 0건" not in chk:
         print(chk[-1500:])
         sys.exit("카드 검사 오류가 남아 있어 마무리하지 않습니다.")
+    # 승인 전에 지금 카드로 변경 보고서를 다시 써서, 카드를 고친 결과(카드 근거가 없는 바뀐 곳 등)가 새 판 파일에 들어가게 한다
+    run(sys.executable, "scripts/check_changes.py")
+    stale_path = ROOT / "knowledge" / "stale_cards.json"
+    unc = json.loads(stale_path.read_text(encoding="utf-8")).get("uncovered", []) if stale_path.exists() else []
+    if unc:
+        print(f"경고: 카드 근거가 없는 바뀐 곳 {len(unc)}곳: {', '.join(x['rule'] + ' ' + x['unit'] for x in unc)}"
+              " — 빠뜨린 내용이 아닌지 보고, 카드가 필요 없으면 Pull Request 글에 까닭을 적어 주세요")
     # --accept 와 아래 check_changes 가 변경 보고서를 "바뀐 것 없음"으로 덮어쓰므로, 새 판 파일용으로 먼저 따로 둔다
     report = ROOT / "reports" / "change_report.md"
     if report.exists():
@@ -187,6 +196,9 @@ def finish(accept):
     print(f"판 번호: 제{site['release']['no']}판")
     print(run(sys.executable, "scripts/check_changes.py").strip())
     build_all()
+    # 검색 시험 전·후 비교(고치기 전 = main 과 갈라진 곳). 비교를 못 해도 새 판 준비는 멈추지 않는다
+    cmp_out = run(sys.executable, "scripts/compare_search.py", check=False).strip()
+    print(cmp_out or "경고: 검색 시험 전·후 비교를 하지 못했습니다(새 판 준비에는 영향 없음). python3 scripts/compare_search.py 로 따로 돌려 보세요")
     # 원본 파일 기록 갱신(다음 개정 때 바뀐 파일만 고르기 위해)
     cur = {n: sha(p) for n, p in sources().items()}
     MANIFEST.write_text(json.dumps({"taken": datetime.date.today().isoformat(), "files": cur}, ensure_ascii=False, indent=1) + "\n")
